@@ -287,7 +287,7 @@ export const ProviderBookings = () => {
   const stompRef = useRef(null);
   const locationRef = useRef(null);
   
-  // ✅ FIX 1: Ensure providerId is a safe Number
+  // ✅ FIX: Get providerId safely as a Number
   const providerId = Number(localStorage.getItem("providerId")) || 0;
 
   const showToast = (msg, type = "success") => {
@@ -300,16 +300,18 @@ export const ProviderBookings = () => {
       const res = await fetch(`${API_URL}/getAll-Bookings`);
       const data = await res.json();
       if (Array.isArray(data)) {
-        // ✅ FIX 2: Filter logic to show bookings that are UNASSIGNED (0/null) OR MINE
+        // ✅ FIX: Filter to show bookings for THIS provider OR unassigned bookings (0/null)
         const mine = data.filter(b => {
           const bProviderId = b.providerId ? Number(b.providerId) : 0;
           return bProviderId === providerId || bProviderId === 0;
         });
-        // Newest on top
-        setBookings(mine.reverse());
+        setBookings(mine.reverse()); // Show newest first
       }
-    } catch (e) { console.log("Fetch error:", e); }
-    finally { setLoading(false); }
+    } catch (e) { 
+        console.log("Fetch error:", e); 
+    } finally { 
+        setLoading(false); 
+    }
   };
 
   useEffect(() => {
@@ -334,7 +336,7 @@ export const ProviderBookings = () => {
       loadScript("https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js", "stomp-script")
     ]).then(() => {
       try {
-        // ✅ FIX 3: Use secure WebSocket URL for Production (Vercel/Render)
+        // ✅ FIX: Secure URL for Vercel/Render Production
         const wsUrl = `${API_URL}/ws-location-sockjs`;
         const socket = new window.SockJS(wsUrl);
         const stomp = window.Stomp.over(socket);
@@ -357,11 +359,9 @@ export const ProviderBookings = () => {
           { enableHighAccuracy: true, maximumAge: 3000 });
         }, (err) => {
           showToast("Connection failed. Try again.", "error");
-          console.log("STOMP error:", err);
         });
       } catch (e) {
         showToast("Location sharing error", "error");
-        console.log(e);
       }
     });
   };
@@ -376,7 +376,7 @@ export const ProviderBookings = () => {
 
   const handleAccept = async (bookingId) => {
     try {
-      // ✅ Pass current providerId to the backend so the booking is assigned to YOU
+      // ✅ FIX: Send the actual providerId so the backend assigns it to YOU
       const res = await fetch(`${API_URL}/update/${bookingId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -385,18 +385,30 @@ export const ProviderBookings = () => {
             providerId: providerId 
         })
       });
-      if (res.ok) { showToast("✅ Booking accepted!"); fetchBookings(); }
-      else showToast("Failed to accept.", "error");
-    } catch { showToast("Error", "error"); }
+      if (res.ok) { 
+          showToast("✅ Booking accepted!"); 
+          fetchBookings(); 
+      } else {
+          showToast("Failed to accept.", "error");
+      }
+    } catch { 
+        showToast("Error", "error"); 
+    }
   };
 
   const handleRequestOTP = async (bookingId) => {
     try {
       const res = await fetch(`${API_URL}/request-completion/${bookingId}`, { method: "PUT" });
       const text = await res.text();
-      if (res.ok) { showToast("🔐 OTP sent! Customer can see it."); fetchBookings(); }
-      else showToast(text || "Failed.", "error");
-    } catch { showToast("Error", "error"); }
+      if (res.ok) { 
+          showToast("🔐 OTP sent! Customer can see it."); 
+          fetchBookings(); 
+      } else {
+          showToast(text || "Failed.", "error");
+      }
+    } catch { 
+        showToast("Error", "error"); 
+    }
   };
 
   const active = bookings.filter(b => !["COMPLETED", "CANCELLED"].includes(safeStatus(b.status)));
