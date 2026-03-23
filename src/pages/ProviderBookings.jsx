@@ -232,7 +232,6 @@
 //     </div>
 //   );
 // };
-
 import React, { useEffect, useState, useRef } from "react";
 import { API_URL } from "../data/Api";
 
@@ -287,8 +286,9 @@ export const ProviderBookings = () => {
   const [sharingLocation, setSharingLocation] = useState(false);
   const stompRef = useRef(null);
   const locationRef = useRef(null);
-  // ✅ Get providerId as number
-  const providerId = parseInt(localStorage.getItem("providerId") || "0");
+  
+  // ✅ FIX 1: Ensure providerId is a safe Number
+  const providerId = Number(localStorage.getItem("providerId")) || 0;
 
   const showToast = (msg, type = "success") => {
     setToast({ msg, type });
@@ -300,12 +300,13 @@ export const ProviderBookings = () => {
       const res = await fetch(`${API_URL}/getAll-Bookings`);
       const data = await res.json();
       if (Array.isArray(data)) {
-        // ✅ Fixed filter - show ALL bookings (provider sees all unassigned + theirs)
+        // ✅ FIX 2: Filter logic to show bookings that are UNASSIGNED (0/null) OR MINE
         const mine = data.filter(b => {
-          const bProviderId = b.providerId ? parseInt(b.providerId) : null;
-          return bProviderId === providerId || bProviderId === null || bProviderId === 0;
+          const bProviderId = b.providerId ? Number(b.providerId) : 0;
+          return bProviderId === providerId || bProviderId === 0;
         });
-        setBookings(mine);
+        // Newest on top
+        setBookings(mine.reverse());
       }
     } catch (e) { console.log("Fetch error:", e); }
     finally { setLoading(false); }
@@ -317,11 +318,9 @@ export const ProviderBookings = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // ✅ STOMP-based location sharing (matches backend LocationController)
   const startLocationSharing = () => {
     if (!navigator.geolocation) { showToast("GPS not available", "error"); return; }
 
-    // Load SockJS + STOMP dynamically
     const loadScript = (src, id) => new Promise((res) => {
       if (document.getElementById(id)) { res(); return; }
       const s = document.createElement("script");
@@ -335,10 +334,12 @@ export const ProviderBookings = () => {
       loadScript("https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js", "stomp-script")
     ]).then(() => {
       try {
-        const wsUrl = API_URL.replace("https://", "http://").replace("http://", "http://") + "/ws-location-sockjs";
+        // ✅ FIX 3: Use secure WebSocket URL for Production (Vercel/Render)
+        const wsUrl = `${API_URL}/ws-location-sockjs`;
         const socket = new window.SockJS(wsUrl);
         const stomp = window.Stomp.over(socket);
         stomp.debug = null;
+        
         stomp.connect({}, () => {
           stompRef.current = stomp;
           setSharingLocation(true);
@@ -347,7 +348,7 @@ export const ProviderBookings = () => {
           locationRef.current = navigator.geolocation.watchPosition((pos) => {
             if (stompRef.current?.connected) {
               stompRef.current.send("/app/send-location", {}, JSON.stringify({
-                providerId,
+                providerId: providerId,
                 latitude: pos.coords.latitude,
                 longitude: pos.coords.longitude
               }));
@@ -375,10 +376,14 @@ export const ProviderBookings = () => {
 
   const handleAccept = async (bookingId) => {
     try {
+      // ✅ Pass current providerId to the backend so the booking is assigned to YOU
       const res = await fetch(`${API_URL}/update/${bookingId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "CONFIRMED" })
+        body: JSON.stringify({ 
+            status: "CONFIRMED",
+            providerId: providerId 
+        })
       });
       if (res.ok) { showToast("✅ Booking accepted!"); fetchBookings(); }
       else showToast("Failed to accept.", "error");
@@ -454,14 +459,14 @@ export const ProviderBookings = () => {
                       {b.amount > 0 && <><span>·</span><span style={{ fontWeight: 700, color: "var(--green)" }}>₹{b.amount}</span></>}
                     </div>
                     {b.paymentStatus && (
-                      <span className="badge" style={{ marginTop: 6, display: "inline-flex",
+                      <span className="badge" style={{ marginTop: 6, display: "inline-flex", 
                         background: b.paymentStatus === "SUCCESS" ? "var(--green-light)" : b.paymentStatus === "COD" ? "#FFFBEB" : "#F5F5F5",
                         color: b.paymentStatus === "SUCCESS" ? "var(--green)" : b.paymentStatus === "COD" ? "#D97706" : "var(--text2)" }}>
                         {b.paymentStatus === "SUCCESS" ? "💳 Paid" : b.paymentStatus === "COD" ? "💵 COD" : "⏳ Pending"}
                       </span>
                     )}
                   </div>
-                  <span className="status-badge" style={{
+                  <span className="status-badge" style={{ 
                     background: status === "COMPLETED" ? "var(--green-light)" : status === "CANCELLED" ? "var(--brand-light)" : status === "WAITING_FOR_OTP" ? "#FFFBEB" : status === "CONFIRMED" ? "#EFF6FF" : "#F0FFF4",
                     color: status === "COMPLETED" ? "var(--green)" : status === "CANCELLED" ? "var(--brand)" : status === "WAITING_FOR_OTP" ? "#D97706" : status === "CONFIRMED" ? "var(--blue)" : "var(--green)"
                   }}>
