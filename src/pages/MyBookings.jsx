@@ -745,23 +745,42 @@ const LiveMap = ({ providerId }) => {
     mapInstanceRef.current.setView([lat, lng], 15);
   }, [location]);
 
-  // WebSocket
+  // ✅ STOMP to receive provider location
   useEffect(() => {
-    if (!providerId) return;
-    try {
-      const wsUrl = API_URL.replace("https://", "wss://").replace("http://", "ws://") + "/ws-location";
-      wsRef.current = new WebSocket(wsUrl);
-      wsRef.current.onopen = () => setConnected(true);
-      wsRef.current.onmessage = (e) => {
-        try {
-          const d = JSON.parse(e.data);
-          if (String(d.providerId) === String(providerId)) setLocation({ lat: d.lat, lng: d.lng });
-        } catch {}
-      };
-      wsRef.current.onclose = () => setConnected(false);
-      wsRef.current.onerror = () => setConnected(false);
-    } catch {}
-    return () => { if (wsRef.current) wsRef.current.close(); };
+    const loadScript = (src, id) => new Promise((res) => {
+      if (document.getElementById(id)) { res(); return; }
+      const s = document.createElement("script");
+      s.src = src; s.id = id; s.onload = res;
+      document.head.appendChild(s);
+    });
+
+    Promise.all([
+      loadScript("https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js", "sockjs-script"),
+      loadScript("https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js", "stomp-script")
+    ]).then(() => {
+      try {
+        const wsUrl = API_URL.replace("https://", "http://").replace("http://", "http://") + "/ws-location-sockjs";
+        const socket = new window.SockJS(wsUrl);
+        const stomp = window.Stomp.over(socket);
+        stomp.debug = null;
+        stomp.connect({}, () => {
+          setConnected(true);
+          wsRef.current = stomp;
+          stomp.subscribe("/topic/location", (msg) => {
+            try {
+              const d = JSON.parse(msg.body);
+              if (String(d.providerId) === String(providerId)) {
+                setLocation({ lat: d.latitude, lng: d.longitude });
+              }
+            } catch {}
+          });
+        }, () => setConnected(false));
+      } catch {}
+    });
+
+    return () => {
+      if (wsRef.current?.connected) wsRef.current.disconnect();
+    };
   }, [providerId]);
 
   // Cleanup map
