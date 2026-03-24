@@ -232,7 +232,9 @@
 //     </div>
 //   );
 // };
-import React, { useEffect, useState, useRef } from "react";
+
+
+import React, { useEffect, useState } from "react";
 import { API_URL } from "../data/Api";
 
 const safeStatus = (s) => {
@@ -245,32 +247,77 @@ const OTPInput = ({ bookingId, onSuccess, showToast }) => {
   const [loading, setLoading] = useState(false);
 
   const handleVerify = async () => {
-    if (!otp || otp.length < 4) { showToast("Enter 4-digit OTP", "error"); return; }
+    if (!otp || otp.length < 4) {
+      showToast("Enter 4-digit OTP", "error");
+      return;
+    }
+
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/verify-completion/${bookingId}/${otp}`, { method: "PUT" });
-      const text = await res.text();
-      if (res.ok) { showToast("🎉 Service completed!"); onSuccess(); }
-      else showToast(text || "Invalid OTP", "error");
-    } catch { showToast("OTP error", "error"); }
-    finally { setLoading(false); }
+      const res = await fetch(`${API_URL}/verify-completion/${bookingId}/${otp}`, {
+        method: "PUT"
+      });
+
+      if (res.ok) {
+        showToast("🎉 Service completed!");
+        onSuccess();
+      } else {
+        showToast("Invalid OTP", "error");
+      }
+    } catch {
+      showToast("OTP error", "error");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div style={{ background: "var(--green-light)", border: "2px solid var(--green)", borderRadius: 12, padding: 16, marginTop: 10 }}>
-      <p style={{ fontSize: 13, fontWeight: 700, color: "var(--green)", marginBottom: 10 }}>
-        🔐 Enter OTP from customer to complete service
+    <div style={{
+      background: "var(--green-light)",
+      border: "2px solid var(--green)",
+      borderRadius: 12,
+      padding: 16,
+      marginTop: 10
+    }}>
+      <p style={{
+        fontSize: 13,
+        fontWeight: 700,
+        color: "var(--green)",
+        marginBottom: 10
+      }}>
+        🔐 Enter OTP from customer
       </p>
+
       <div style={{ display: "flex", gap: 8 }}>
         <input
-          style={{ flex: 1, padding: "12px", fontSize: 24, fontWeight: 800, letterSpacing: 10, textAlign: "center", border: "2px solid var(--green)", borderRadius: 8, outline: "none", fontFamily: "monospace", background: "white" }}
           value={otp}
-          onChange={e => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+          onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
           placeholder="_ _ _ _"
           maxLength={6}
+          style={{
+            flex: 1,
+            padding: 12,
+            fontSize: 24,
+            fontWeight: 800,
+            textAlign: "center",
+            border: "2px solid var(--green)",
+            borderRadius: 8
+          }}
         />
-        <button onClick={handleVerify} disabled={loading || otp.length < 4}
-          style={{ background: otp.length >= 4 ? "var(--green)" : "#ccc", color: "white", border: "none", borderRadius: 8, padding: "10px 20px", fontWeight: 700, fontSize: 14, cursor: otp.length >= 4 ? "pointer" : "not-allowed", minWidth: 90 }}>
+
+        <button
+          onClick={handleVerify}
+          disabled={loading || otp.length < 4}
+          style={{
+            background: otp.length >= 4 ? "var(--green)" : "#ccc",
+            color: "white",
+            border: "none",
+            borderRadius: 8,
+            padding: "10px 20px",
+            fontWeight: 700,
+            cursor: "pointer"
+          }}
+        >
           {loading ? "..." : "Verify ✓"}
         </button>
       </div>
@@ -283,34 +330,41 @@ export const ProviderBookings = () => {
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
   const [tab, setTab] = useState("active");
-  const [sharingLocation, setSharingLocation] = useState(false);
-  const stompRef = useRef(null);
-  const locationRef = useRef(null);
-  
-  // ✅ FIX: Get providerId safely as a Number
-  const providerId = Number(localStorage.getItem("providerId")) || 0;
+
+  const providerId = localStorage.getItem("providerId") || "0"; // KEEP AS STRING
 
   const showToast = (msg, type = "success") => {
     setToast({ msg, type });
-    setTimeout(() => setToast(null), 3500);
+    setTimeout(() => setToast(null), 3000);
   };
 
   const fetchBookings = async () => {
     try {
       const res = await fetch(`${API_URL}/getAll-Bookings`);
       const data = await res.json();
+
+      console.log("ALL BOOKINGS:", data);
+
       if (Array.isArray(data)) {
-        // ✅ FIX: Filter to show bookings for THIS provider OR unassigned bookings (0/null)
-        const mine = data.filter(b => {
-          const bProviderId = b.providerId ? Number(b.providerId) : 0;
-          return bProviderId === providerId || bProviderId === 0;
+        const visibleBookings = data.filter((b) => {
+          const bPid = b.providerId ? String(b.providerId) : "0";
+          const status = safeStatus(b.status);
+
+          console.log("Check:", b.bookingId, "Status:", status, "bPid:", bPid, "myPid:", providerId);
+
+          return (
+            bPid === providerId ||                 // my bookings (FIXED)
+            bPid === "0" ||                        // unassigned
+            ["BOOKED", "PENDING"].includes(status) // new bookings
+          );
         });
-        setBookings(mine.reverse()); // Show newest first
+
+        setBookings(visibleBookings);
       }
-    } catch (e) { 
-        console.log("Fetch error:", e); 
-    } finally { 
-        setLoading(false); 
+    } catch (e) {
+      console.log("Fetch error:", e);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -320,193 +374,147 @@ export const ProviderBookings = () => {
     return () => clearInterval(interval);
   }, []);
 
-  const startLocationSharing = () => {
-    if (!navigator.geolocation) { showToast("GPS not available", "error"); return; }
-
-    const loadScript = (src, id) => new Promise((res) => {
-      if (document.getElementById(id)) { res(); return; }
-      const s = document.createElement("script");
-      s.src = src; s.id = id;
-      s.onload = res;
-      document.head.appendChild(s);
-    });
-
-    Promise.all([
-      loadScript("https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js", "sockjs-script"),
-      loadScript("https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js", "stomp-script")
-    ]).then(() => {
-      try {
-        // ✅ FIX: Secure URL for Vercel/Render Production
-        const wsUrl = `${API_URL}/ws-location-sockjs`;
-        const socket = new window.SockJS(wsUrl);
-        const stomp = window.Stomp.over(socket);
-        stomp.debug = null;
-        
-        stomp.connect({}, () => {
-          stompRef.current = stomp;
-          setSharingLocation(true);
-          showToast("📍 Live location sharing started!");
-
-          locationRef.current = navigator.geolocation.watchPosition((pos) => {
-            if (stompRef.current?.connected) {
-              stompRef.current.send("/app/send-location", {}, JSON.stringify({
-                providerId: providerId,
-                latitude: pos.coords.latitude,
-                longitude: pos.coords.longitude
-              }));
-            }
-          }, (err) => showToast("GPS error: " + err.message, "error"),
-          { enableHighAccuracy: true, maximumAge: 3000 });
-        }, (err) => {
-          showToast("Connection failed. Try again.", "error");
-        });
-      } catch (e) {
-        showToast("Location sharing error", "error");
-      }
-    });
-  };
-
-  const stopLocationSharing = () => {
-    if (locationRef.current) navigator.geolocation.clearWatch(locationRef.current);
-    if (stompRef.current?.connected) stompRef.current.disconnect();
-    stompRef.current = null;
-    setSharingLocation(false);
-    showToast("Location sharing stopped");
-  };
-
   const handleAccept = async (bookingId) => {
     try {
-      // ✅ FIX: Send the actual providerId so the backend assigns it to YOU
       const res = await fetch(`${API_URL}/update/${bookingId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-            status: "CONFIRMED",
-            providerId: providerId 
+        body: JSON.stringify({
+          status: "CONFIRMED",
+          providerId: providerId
         })
       });
-      if (res.ok) { 
-          showToast("✅ Booking accepted!"); 
-          fetchBookings(); 
+
+      if (res.ok) {
+        showToast("✅ Booking accepted!");
+        fetchBookings();
       } else {
-          showToast("Failed to accept.", "error");
+        showToast("Failed to accept", "error");
       }
-    } catch { 
-        showToast("Error", "error"); 
+    } catch {
+      showToast("Error", "error");
     }
   };
 
   const handleRequestOTP = async (bookingId) => {
     try {
-      const res = await fetch(`${API_URL}/request-completion/${bookingId}`, { method: "PUT" });
-      const text = await res.text();
-      if (res.ok) { 
-          showToast("🔐 OTP sent! Customer can see it."); 
-          fetchBookings(); 
+      const res = await fetch(`${API_URL}/request-completion/${bookingId}`, {
+        method: "PUT"
+      });
+
+      if (res.ok) {
+        showToast("🔐 OTP sent!");
+        fetchBookings();
       } else {
-          showToast(text || "Failed.", "error");
+        showToast("Failed", "error");
       }
-    } catch { 
-        showToast("Error", "error"); 
+    } catch {
+      showToast("Error", "error");
     }
   };
 
-  const active = bookings.filter(b => !["COMPLETED", "CANCELLED"].includes(safeStatus(b.status)));
-  const past = bookings.filter(b => ["COMPLETED", "CANCELLED"].includes(safeStatus(b.status)));
+  const active = bookings.filter(
+    (b) => !["COMPLETED", "CANCELLED"].includes(safeStatus(b.status))
+  );
+
+  const past = bookings.filter((b) =>
+    ["COMPLETED", "CANCELLED"].includes(safeStatus(b.status))
+  );
+
   const displayed = tab === "active" ? active : past;
 
   return (
     <div className="page">
-      <div style={{ background: "white", padding: "16px", borderBottom: "1px solid var(--border)", position: "sticky", top: 60, zIndex: 50 }}>
-        <div className="container">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <h1 style={{ fontSize: 20, fontWeight: 800 }}>My Bookings</h1>
-            <button
-              className={"btn " + (sharingLocation ? "btn-outline" : "btn-green")}
-              style={{ fontSize: 12, padding: "8px 14px" }}
-              onClick={sharingLocation ? stopLocationSharing : startLocationSharing}
-            >
-              {sharingLocation ? "⏹ Stop Location" : "📍 Share Live Location"}
-            </button>
-          </div>
-          <div className="booking-tabs">
-            <button className={"booking-tab" + (tab === "active" ? " active" : "")} onClick={() => setTab("active")}>
-              Active {active.length > 0 && <span style={{ background: "var(--brand)", color: "white", fontSize: 10, padding: "1px 6px", borderRadius: 50, marginLeft: 4 }}>{active.length}</span>}
-            </button>
-            <button className={"booking-tab" + (tab === "past" ? " active" : "")} onClick={() => setTab("past")}>
-              Completed ({past.length})
-            </button>
-          </div>
+      <div style={{
+        background: "white",
+        padding: 16,
+        borderBottom: "1px solid var(--border)"
+      }}>
+        <h1 style={{ fontSize: 20, fontWeight: 800 }}>
+          My Bookings
+        </h1>
+
+        <div className="booking-tabs">
+          <button
+            className={"booking-tab " + (tab === "active" ? "active" : "")}
+            onClick={() => setTab("active")}
+          >
+            Active ({active.length})
+          </button>
+
+          <button
+            className={"booking-tab " + (tab === "past" ? "active" : "")}
+            onClick={() => setTab("past")}
+          >
+            Completed ({past.length})
+          </button>
         </div>
       </div>
 
       <div className="container section">
-        {sharingLocation && (
-          <div style={{ background: "var(--green-light)", border: "1px solid var(--green)", borderRadius: 10, padding: "10px 14px", marginBottom: 12, display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--green)", fontWeight: 600 }}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--green)", display: "inline-block", animation: "ping 1s infinite" }} />
-            Live location sharing active — customers can see you!
-          </div>
-        )}
-
         {loading ? (
-          <div>{[1,2,3].map(i => <div key={i} className="skeleton" style={{ height: 100, marginBottom: 12, borderRadius: 16 }} />)}</div>
+          <div>Loading...</div>
         ) : displayed.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-state-icon">📋</div>
-            <div className="empty-state-title">No {tab} bookings</div>
-            <div className="empty-state-desc">New bookings appear every 8 seconds automatically</div>
+            <div>No bookings</div>
           </div>
         ) : (
-          displayed.map((b, i) => {
+          displayed.map((b) => {
             const status = safeStatus(b.status);
+            const bPid = b.providerId ? String(b.providerId) : "0";
+
             return (
-              <div key={b.bookingId} className="booking-card" style={{ animationDelay: i * 0.05 + "s" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
-                  <div style={{ flex: 1 }}>
-                    <div className="booking-service-name">Booking #{b.bookingId} · Service #{b.serviceId}</div>
-                    <div className="booking-meta">
-                      <span>👤 Customer #{b.customerId}</span>
-                      <span>·</span><span>📅 {b.bookingDate}</span>
-                      <span>·</span><span>📍 {b.address}</span>
-                      {b.amount > 0 && <><span>·</span><span style={{ fontWeight: 700, color: "var(--green)" }}>₹{b.amount}</span></>}
+              <div key={b.bookingId} className="booking-card">
+                <div style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  marginBottom: 10
+                }}>
+                  <div>
+                    <div className="booking-service-name">
+                      Booking #{b.bookingId}
                     </div>
-                    {b.paymentStatus && (
-                      <span className="badge" style={{ marginTop: 6, display: "inline-flex", 
-                        background: b.paymentStatus === "SUCCESS" ? "var(--green-light)" : b.paymentStatus === "COD" ? "#FFFBEB" : "#F5F5F5",
-                        color: b.paymentStatus === "SUCCESS" ? "var(--green)" : b.paymentStatus === "COD" ? "#D97706" : "var(--text2)" }}>
-                        {b.paymentStatus === "SUCCESS" ? "💳 Paid" : b.paymentStatus === "COD" ? "💵 COD" : "⏳ Pending"}
-                      </span>
-                    )}
+                    <div className="booking-meta">
+                      📍 {b.address}
+                    </div>
                   </div>
-                  <span className="status-badge" style={{ 
-                    background: status === "COMPLETED" ? "var(--green-light)" : status === "CANCELLED" ? "var(--brand-light)" : status === "WAITING_FOR_OTP" ? "#FFFBEB" : status === "CONFIRMED" ? "#EFF6FF" : "#F0FFF4",
-                    color: status === "COMPLETED" ? "var(--green)" : status === "CANCELLED" ? "var(--brand)" : status === "WAITING_FOR_OTP" ? "#D97706" : status === "CONFIRMED" ? "var(--blue)" : "var(--green)"
-                  }}>
-                    {status === "BOOKED" ? "🆕 New" : status === "CONFIRMED" ? "✅ Confirmed" : status === "WAITING_FOR_OTP" ? "🔐 Enter OTP" : status === "COMPLETED" ? "🎉 Done" : "✕ Cancelled"}
+
+                  <span className="status-badge">
+                    {status === "BOOKED" && "🆕 New"}
+                    {status === "CONFIRMED" && "✅ Confirmed"}
+                    {status === "WAITING_FOR_OTP" && "🔐 Enter OTP"}
+                    {status === "COMPLETED" && "🎉 Done"}
                   </span>
                 </div>
 
-                {status === "COMPLETED" && b.rating && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 8 }}>
-                    {[1,2,3,4,5].map(i => <span key={i} style={{ color: i <= b.rating ? "#F7C000" : "var(--border)", fontSize: 16 }}>★</span>)}
-                    {b.review && <span style={{ fontSize: 12, color: "var(--text3)", marginLeft: 4 }}>"{b.review}"</span>}
-                  </div>
-                )}
-
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  
                   {status === "BOOKED" && (
-                    <button className="btn btn-primary btn-full" onClick={() => handleAccept(b.bookingId)}>
+                    <button
+                      className="btn btn-primary btn-full"
+                      onClick={() => handleAccept(b.bookingId)}
+                    >
                       ✅ Accept This Booking
                     </button>
                   )}
-                  {status === "CONFIRMED" && (
-                    <button className="btn btn-green btn-full" onClick={() => handleRequestOTP(b.bookingId)}>
-                      🔐 Generate OTP (Mark as Done)
+
+                  {status === "CONFIRMED" && bPid === providerId && (
+                    <button
+                      className="btn btn-green btn-full"
+                      onClick={() => handleRequestOTP(b.bookingId)}
+                    >
+                      📲 Generate OTP (Send to Customer)
                     </button>
                   )}
-                  {status === "WAITING_FOR_OTP" && (
-                    <OTPInput bookingId={b.bookingId} onSuccess={fetchBookings} showToast={showToast} />
+
+                  {status === "WAITING_FOR_OTP" && bPid === providerId && (
+                    <OTPInput
+                      bookingId={b.bookingId}
+                      onSuccess={fetchBookings}
+                      showToast={showToast}
+                    />
                   )}
+
                 </div>
               </div>
             );
@@ -514,7 +522,11 @@ export const ProviderBookings = () => {
         )}
       </div>
 
-      {toast && <div className={"toast toast-" + toast.type}>{toast.type === "success" ? "✓" : "✕"} {toast.msg}</div>}
+      {toast && (
+        <div className={"toast toast-" + toast.type}>
+          {toast.msg}
+        </div>
+      )}
     </div>
   );
 };
